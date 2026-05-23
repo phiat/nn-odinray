@@ -1,4 +1,4 @@
-package pp1
+package nn_odinray
 
 // Visualization layer: graph layout, drawing the network (cards, connections,
 // self-loops, output handles, unrolled time steps) and the forward-pass pulse

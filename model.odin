@@ -1,4 +1,4 @@
-package pp1
+package nn_odinray
 
 // Core data model: layer/connection/architecture types, parameters,
 // shape propagation, analysis (param count + FLOPs), hit testing, mutations.

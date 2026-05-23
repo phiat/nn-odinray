@@ -1,4 +1,4 @@
-package pp1
+package nn_odinray
 
 // Built-in demo architectures: CNN, SimpleRNN, LSTM, GRU.
 // Each builder constructs an Architecture, lays it out, and frames the camera.

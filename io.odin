@@ -1,4 +1,4 @@
-package pp1
+package nn_odinray
 
 // JSON persistence and the undo/redo history stack.
 // Both manage snapshots of the data model defined in model.odin.

@@ -1,4 +1,4 @@
-package pp1
+package nn_odinray
 
 import "core:fmt"
 import "core:strings"
@@ -19,6 +19,7 @@ HELP_LINES := []cstring{
 	"Tab               -  cycle demo (CNN/RNN/LSTM/GRU)",
 	"U                 -  toggle time-unrolled RNN view",
 	"Ctrl+Z / Ctrl+Y  -  undo / redo",
+	"Ctrl+C / Ctrl+V  -  copy / paste layer",
 	"S / L             -  save / load architecture.json",
 	"R                 -  reset layout & camera",
 	"+ / -             -  animation speed",

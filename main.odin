@@ -1,4 +1,4 @@
-package pp1
+package nn_odinray
 
 import "core:fmt"
 import "core:os"
@@ -31,6 +31,12 @@ UI_State :: struct {
 	// layer-type picker popup
 	picker_open:     bool,
 	picker_after_id: int,
+
+	// clipboard for copy/paste (Ctrl+C / Ctrl+V).
+	// has_clipboard gates use; clipboard holds the source Layer by value.
+	clipboard:     Layer,
+	has_clipboard: bool,
+	paste_count:   int, // used to step successive pastes diagonally so they don't fully overlap
 
 	// undo/redo (owned by main; ui carries a pointer for buttons in draw_ui_overlay)
 	history: ^History,
@@ -295,6 +301,35 @@ handle_input :: proc(arch: ^Architecture, ui: ^UI_State, dt: f32) {
 			ui.hovered_layer = -1; ui.dragging_layer = -1; ui.connecting_from_id = -1
 			show_toast(ui, "redo")
 		}
+	}
+
+	// Ctrl+C: copy hovered/selected layer into clipboard.
+	if ctrl && rl.IsKeyPressed(.C) {
+		target_idx := ui.hovered_layer
+		if target_idx < 0 do target_idx = selected_layer_index(arch, ui)
+		if target_idx >= 0 {
+			ui.clipboard = arch.layers[target_idx]
+			ui.has_clipboard = true
+			show_toast(ui, fmt.tprintf("copied %s #%d", string(layer_label(ui.clipboard.type)), ui.clipboard.id))
+		}
+	}
+
+	// Ctrl+V: paste clipboard as a new (unconnected) layer near the camera target.
+	// Successive pastes step diagonally so they don't all stack on the same pixel.
+	if ctrl && rl.IsKeyPressed(.V) && ui.has_clipboard {
+		push_undo(ui.history, arch)
+		new_layer := ui.clipboard
+		compute_layer_size(&new_layer)
+		step := f32(ui.paste_count % 8) * 24
+		new_layer.position = rl.Vector2{
+			arch.camera.target[0] - new_layer.size[0] / 2 + step,
+			arch.camera.target[1] - new_layer.size[1] / 2 + step,
+		}
+		new_id := add_layer(arch, new_layer)
+		ui.paste_count += 1
+		ui.selected_layer = new_id
+		ui.panel_open = true
+		show_toast(ui, fmt.tprintf("pasted %s #%d", string(layer_label(new_layer.type)), new_id))
 	}
 
 	if rl.IsKeyPressed(.ESCAPE) {

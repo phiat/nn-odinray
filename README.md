@@ -26,6 +26,7 @@ An interactive 2D visualizer for **CNN and RNN architectures**, written in [Odin
   - Move any layer with left-drag; pan with middle-drag; zoom around the cursor with the mouse wheel.
 - **Live shape propagation**: editing any param (filters, kernel, units, etc.) re-derives `output_shape` and propagates `input_shape` through the rest of the graph via a topological forward pass.
 - **Undo / Redo** with `Ctrl+Z` / `Ctrl+Y` (depth 64), plus toolbar buttons that show stack depth.
+- **Copy / Paste** any layer with `Ctrl+C` / `Ctrl+V`. Pasted copies land near the camera target (consecutive pastes step diagonally so they don't fully overlap) and inherit the source's parameters; connections are not copied.
 - **JSON persistence**: `S` saves to `architecture.json`, `L` loads. Pretty-printed and hand-editable.
 - **Screenshot export**: `P` writes `visualizer_NNN.png`.
 - **Four built-in demos**: CNN, SimpleRNN, LSTM, GRU. `Tab` cycles between them.
@@ -81,6 +82,7 @@ Tested on Odin `dev-2026-05` with raylib 5.5. The code uses only `core:` and `ve
 | `N` | Open layer-type picker |
 | `Delete` / `Backspace` | Remove selected connection (or hovered/selected layer) |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |
+| `Ctrl+C` / `Ctrl+V` | Copy hovered/selected layer / paste near the camera target |
 | `Tab` | Cycle between demo architectures |
 | `U` | Toggle time-unrolled RNN view |
 | `S` / `L` | Save / Load `architecture.json` |
