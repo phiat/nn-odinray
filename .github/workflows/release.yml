@@ -30,7 +30,7 @@ jobs:
             odin_asset: odin-macos-arm64
             archive_ext: tar.gz
             binary: nn-odinray
-          - os: windows-latest
+          - os: windows-2025
             platform: windows-x86_64
             odin_asset: odin-windows-amd64
             archive_ext: zip
