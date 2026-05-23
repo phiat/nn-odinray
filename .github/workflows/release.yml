@@ -25,11 +25,6 @@ jobs:
             odin_asset: odin-linux-amd64
             archive_ext: tar.gz
             binary: nn-odinray
-          - os: macos-13
-            platform: macos-x86_64
-            odin_asset: odin-macos-amd64
-            archive_ext: tar.gz
-            binary: nn-odinray
           - os: macos-14
             platform: macos-arm64
             odin_asset: odin-macos-arm64
@@ -42,7 +37,7 @@ jobs:
             binary: nn-odinray.exe
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Linux system packages
         if: runner.os == 'Linux'
@@ -104,7 +99,7 @@ jobs:
           fi
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nn-odinray-${{ matrix.platform }}
           path: dist/nn-odinray-${{ matrix.platform }}.*
@@ -116,10 +111,10 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -130,7 +125,7 @@ jobs:
           ls -la release
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: release/*
           generate_release_notes: true
