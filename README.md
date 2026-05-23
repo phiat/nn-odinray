@@ -130,11 +130,14 @@ Param fields not relevant to a given layer type are written as zero/empty but ig
 
 ```
 main.odin         window/loop, input handling, CLI flags, undo/redo wiring
-visualizer.odin   data model, layout, drawing, animation, shape propagation, JSON I/O, history
-ui.odin          toolbar, status bar, help panel, property panel, layer picker
+model.odin        layer/connection types, params, shape propagation, param/FLOPs, mutations, hit testing
+demos.odin        built-in CNN/RNN/LSTM/GRU architectures
+visualizer.odin   layout, drawing (cards, connections, self-loops, unrolled view), pulse animation
+io.odin           JSON persistence + undo/redo history snapshots
+ui.odin           toolbar, status bar, help panel, property panel, layer picker
 ```
 
-~1500 lines of Odin across the three files. No external libraries beyond Odin's `core:` and `vendor:raylib`.
+~2600 lines of Odin across six files. No external libraries beyond Odin's `core:` and `vendor:raylib`.
 
 ## Non-goals
 
