@@ -17,6 +17,7 @@ HELP_LINES := []cstring{
 	"N                 -  add layer (picker)",
 	"Delete            -  remove selected conn/layer",
 	"Tab               -  cycle demo (CNN/RNN/LSTM/GRU)",
+	"U                 -  toggle time-unrolled RNN view",
 	"Ctrl+Z / Ctrl+Y  -  undo / redo",
 	"S / L             -  save / load architecture.json",
 	"R                 -  reset layout & camera",
@@ -94,13 +95,12 @@ draw_ui_overlay :: proc(arch: ^Architecture, ui: ^UI_State) {
 	// top status bar
 	rl.DrawRectangle(0, 0, sw, 30, rl.Color{12, 14, 20, 220})
 	status := fmt.ctprintf(
-		"demo:%s  layers:%d  conns:%d  pulses:%d  zoom:%.2f  speed:%.1fx  fps:%d",
+		"demo:%s  layers:%d  params:%s  flops:%s  zoom:%.2f  fps:%d",
 		demo_name(ui.current_demo),
 		len(arch.layers),
-		len(arch.connections),
-		len(arch.pulses),
+		format_count(total_params(arch)),
+		format_count(total_flops(arch)),
 		arch.camera.zoom,
-		arch.anim_speed,
 		rl.GetFPS(),
 	)
 	rl.DrawText(status, 10, 8, 14, rl.Color{200, 220, 240, 255})
@@ -295,7 +295,15 @@ draw_property_panel :: proc(arch: ^Architecture, ui: ^UI_State) {
 	rl.DrawText(in_str, i32(rect.x + 14), i32(y), 13, rl.Color{170, 200, 230, 255})
 	y += 18
 	rl.DrawText(out_str, i32(rect.x + 14), i32(y), 13, rl.Color{160, 220, 200, 255})
-	y += 24
+	y += 20
+
+	// param / flop rows
+	param_str := fmt.ctprintf("params: %s", format_count(layer_param_count(l)))
+	flop_str := fmt.ctprintf("flops:  %s", format_count(layer_flops(l)))
+	rl.DrawText(param_str, i32(rect.x + 14), i32(y), 13, rl.Color{230, 200, 150, 255})
+	y += 18
+	rl.DrawText(flop_str, i32(rect.x + 14), i32(y), 13, rl.Color{220, 180, 220, 255})
+	y += 22
 	rl.DrawLine(i32(rect.x + 10), i32(y), i32(rect.x + rect.width - 10), i32(y), rl.Color{60, 80, 100, 255})
 	y += 10
 

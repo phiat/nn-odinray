@@ -209,6 +209,12 @@ handle_input :: proc(arch: ^Architecture, ui: ^UI_State, dt: f32) {
 		next := Demo_Kind((int(ui.current_demo) + 1) % len(Demo_Kind))
 		switch_demo(arch, ui, next)
 	}
+	if rl.IsKeyPressed(.U) {
+		arch.unrolled = !arch.unrolled
+		compute_render_offsets(arch) // ensure bounds are correct before fit
+		fit_camera(arch, f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight()))
+		show_toast(ui, arch.unrolled ? "unrolled view: ON" : "unrolled view: off")
+	}
 	if rl.IsKeyPressed(.S) {
 		if save_architecture(arch, SAVE_PATH) {
 			show_toast(ui, fmt.tprintf("saved → %s", SAVE_PATH))
@@ -381,6 +387,7 @@ main :: proc() {
 	start_demo := Demo_Kind.CNN
 	open_panel_idx := -1
 	open_picker_idx := -1
+	start_unrolled := false
 	{
 		args := os.args
 		for i := 1; i < len(args); i += 1 {
@@ -415,6 +422,8 @@ main :: proc() {
 				}
 				open_picker_idx = v
 				i += 1
+			} else if args[i] == "--unrolled" {
+				start_unrolled = true
 			}
 		}
 	}
@@ -479,6 +488,7 @@ main :: proc() {
 
 	shot_frame := 0
 	fitted := false
+	arch.unrolled = start_unrolled
 
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
@@ -488,6 +498,9 @@ main :: proc() {
 
 		// keep camera offset centered on window even when resized
 		arch.camera.offset = rl.Vector2{sw / 2, sh / 2}
+
+		// recompute transient render offsets so hit-testing and rendering agree this frame
+		compute_render_offsets(&arch)
 
 		if !fitted {
 			fit_camera(&arch, sw, sh)

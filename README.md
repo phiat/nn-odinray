@@ -15,7 +15,9 @@ An interactive 2D visualizer for **CNN and RNN architectures**, written in [Odin
 - **Layer types**: `Input`, `Conv2D`, `MaxPool`, `AveragePool`, `Flatten`, `Dense`, `SimpleRNN`, `LSTM`, `GRU`, `Output`.
 - **Live animated forward pass**: colored pulses propagate along connections; speed adjustable at runtime.
 - **Recurrent self-loops**: `SimpleRNN`/`LSTM`/`GRU` layers render with a `t-1` self-loop arc.
+- **Time-unrolled RNN view**: press `U` to expand recurrent layers into N copies labelled `t-1`, `t`, `t+1`, `t+2` and connected by explicit time-step arrows. Downstream layers shift right automatically; render-only, no data-model change.
 - **Multi-channel feature maps**: layers with channels > 1 render with offset "stacked card" shadows scaled by channel count.
+- **Parameter count and FLOPs**: live totals in the status bar, plus per-layer numbers in the property panel. Standard formulas (Conv: `(k²·in_ch+1)·filters`; LSTM: `4·(in+units+1)·units`; MAC counted as 2 FLOPs). Bump a `filters` value and watch the totals jump.
 - **Full graph editor**:
   - Right-click any layer to open a property panel with `-`/`+` and `<`/`>` controls.
   - `N` (or the **+ Add Layer** toolbar button) opens a layer-type picker.
@@ -35,7 +37,9 @@ An interactive 2D visualizer for **CNN and RNN architectures**, written in [Odin
 | ![CNN](screenshots/cnn.png) | ![LSTM with self-loops](screenshots/lstm.png) |
 | **CNN forward pass** with animated pulses, multi-channel stacked feature maps. | **LSTM** with recurrent self-loop arcs and output handles. |
 | ![Property panel](screenshots/panel.png) | ![Layer-type picker](screenshots/picker.png) |
-| **Property panel** with live in/out shapes and edit controls. | **Layer picker** modal — pick any of 9 layer types. |
+| **Property panel** with live in/out shapes, param count and FLOPs. | **Layer picker** modal — pick any of 9 layer types. |
+| ![Time-unrolled view](screenshots/unrolled.png) | |
+| **Time-unrolled** LSTM: each recurrent layer expanded into 4 copies (`t-1`…`t+2`) with explicit time-step arrows. | |
 
 ## Building
 
@@ -53,6 +57,7 @@ Tested on Odin `dev-2026-05` with raylib 5.5. The code uses only `core:` and `ve
 | Flag | Effect |
 |---|---|
 | `--demo cnn\|rnn\|lstm\|gru` | Pick the startup demo (default: `cnn`). |
+| `--unrolled` | Start with the time-unrolled RNN view enabled. |
 | `--shot <path.png>` | Render ~30 frames then save the screen to a PNG and exit. Useful for headless verification. |
 | `--save-test <path.json>` | Save the chosen demo, immediately re-load it, and print a round-trip summary. |
 | `--shape-test` | Run shape-propagation tests (mutate, delete, insert) and print derived shapes. |
@@ -77,6 +82,7 @@ Tested on Odin `dev-2026-05` with raylib 5.5. The code uses only `core:` and `ve
 | `Delete` / `Backspace` | Remove selected connection (or hovered/selected layer) |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |
 | `Tab` | Cycle between demo architectures |
+| `U` | Toggle time-unrolled RNN view |
 | `S` / `L` | Save / Load `architecture.json` |
 | `R` | Re-run auto-layout and re-fit camera |
 | `+` / `-` | Adjust animation speed |

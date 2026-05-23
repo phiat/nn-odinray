@@ -94,14 +94,17 @@ Layer_Params :: union {
 }
 
 Layer :: struct {
-	id:           int,
-	type:         Layer_Type,
-	position:     rl.Vector2, // top-left corner in world space
-	size:         rl.Vector2,
-	input_shape:  [3]int, // channels, height, width
-	output_shape: [3]int,
-	params:       Layer_Params,
-	color:        rl.Color,
+	id:              int,
+	type:            Layer_Type,
+	position:        rl.Vector2, // top-left corner in world space
+	size:            rl.Vector2,
+	input_shape:     [3]int, // channels, height, width
+	output_shape:    [3]int,
+	params:          Layer_Params,
+	color:           rl.Color,
+	// transient render-only fields, recomputed each frame
+	render_x_offset: f32,
+	render_w_extra:  f32, // extra width when this layer is unrolled into N copies
 }
 
 Connection :: struct {
@@ -123,7 +126,11 @@ Architecture :: struct {
 	anim_speed:        f32,
 	pulses:            [dynamic]Pulse,
 	pulse_spawn_timer: f32,
+	unrolled:          bool, // render-only: expand recurrent layers into N copies
 }
+
+UNROLL_STEPS :: 4
+UNROLL_GAP :: f32(30)
 
 // ----- construction ------------------------------------------------------
 
@@ -390,6 +397,77 @@ build_demo :: proc(kind: Demo_Kind) -> Architecture {
 
 is_recurrent :: proc(t: Layer_Type) -> bool {
 	return t == .SimpleRNN || t == .LSTM || t == .GRU
+}
+
+// ----- parameter count & FLOPs -------------------------------------------
+
+// Forward-pass MAC counted as 2 FLOPs (standard convention).
+// For recurrent layers, FLOPs are reported per single time step.
+layer_param_count :: proc(l: ^Layer) -> int {
+	in_ch := l.input_shape[0]
+	flat_in := l.input_shape[0] * l.input_shape[1] * l.input_shape[2]
+	switch p in l.params {
+	case Conv_Params:
+		return p.filters * (p.kernel * p.kernel * in_ch + 1)
+	case Pool_Params:
+		return 0
+	case Dense_Params:
+		return p.units * (flat_in + 1)
+	case RNN_Params:
+		return p.units * (flat_in + p.units + 1)
+	case LSTM_Params:
+		return 4 * p.units * (flat_in + p.units + 1)
+	case GRU_Params:
+		return 3 * p.units * (flat_in + p.units + 1)
+	case Input_Params:
+		return 0
+	case Output_Params:
+		return p.classes * (flat_in + 1)
+	}
+	return 0
+}
+
+layer_flops :: proc(l: ^Layer) -> int {
+	flat_in := l.input_shape[0] * l.input_shape[1] * l.input_shape[2]
+	switch p in l.params {
+	case Conv_Params:
+		return 2 * (p.kernel * p.kernel * l.input_shape[0]) * l.output_shape[1] * l.output_shape[2] * p.filters
+	case Pool_Params:
+		return p.pool_size * p.pool_size * l.output_shape[1] * l.output_shape[2] * l.input_shape[0]
+	case Dense_Params:
+		return 2 * flat_in * p.units
+	case RNN_Params:
+		return 2 * p.units * (flat_in + p.units)
+	case LSTM_Params:
+		return 8 * p.units * (flat_in + p.units)
+	case GRU_Params:
+		return 6 * p.units * (flat_in + p.units)
+	case Output_Params:
+		return 2 * flat_in * p.classes
+	case Input_Params:
+		return 0
+	}
+	return 0
+}
+
+total_params :: proc(arch: ^Architecture) -> int {
+	total := 0
+	for i in 0 ..< len(arch.layers) do total += layer_param_count(&arch.layers[i])
+	return total
+}
+
+total_flops :: proc(arch: ^Architecture) -> int {
+	total := 0
+	for i in 0 ..< len(arch.layers) do total += layer_flops(&arch.layers[i])
+	return total
+}
+
+format_count :: proc(n: int) -> cstring {
+	if n < 1_000 do return fmt.ctprintf("%d", n)
+	if n < 1_000_000 do return fmt.ctprintf("%.1fK", f64(n) / 1000.0)
+	if n < 1_000_000_000 do return fmt.ctprintf("%.2fM", f64(n) / 1_000_000.0)
+	if n < 1_000_000_000_000 do return fmt.ctprintf("%.2fG", f64(n) / 1_000_000_000.0)
+	return fmt.ctprintf("%.2fT", f64(n) / 1_000_000_000_000.0)
 }
 
 // ----- shape propagation & mutation -------------------------------------
@@ -807,26 +885,30 @@ auto_layout :: proc(arch: ^Architecture) {
 
 network_center :: proc(arch: ^Architecture) -> rl.Vector2 {
 	if len(arch.layers) == 0 do return rl.Vector2{0, 0}
-	min_x, min_y := arch.layers[0].position.x, arch.layers[0].position.y
-	max_x, max_y := min_x, min_y
-	for &l in arch.layers {
-		min_x = min(min_x, l.position.x)
-		min_y = min(min_y, l.position.y)
-		max_x = max(max_x, l.position.x + l.size.x)
-		max_y = max(max_y, l.position.y + l.size.y)
+	r0 := layer_rect(&arch.layers[0])
+	min_x, min_y := r0.x, r0.y
+	max_x, max_y := r0.x + r0.width, r0.y + r0.height
+	for i in 0 ..< len(arch.layers) {
+		r := layer_rect(&arch.layers[i])
+		min_x = min(min_x, r.x)
+		min_y = min(min_y, r.y)
+		max_x = max(max_x, r.x + r.width)
+		max_y = max(max_y, r.y + r.height)
 	}
 	return rl.Vector2{(min_x + max_x) / 2, (min_y + max_y) / 2}
 }
 
 network_bounds :: proc(arch: ^Architecture) -> rl.Vector2 {
 	if len(arch.layers) == 0 do return rl.Vector2{0, 0}
-	min_x, min_y := arch.layers[0].position.x, arch.layers[0].position.y
-	max_x, max_y := min_x, min_y
-	for &l in arch.layers {
-		min_x = min(min_x, l.position.x)
-		min_y = min(min_y, l.position.y)
-		max_x = max(max_x, l.position.x + l.size.x)
-		max_y = max(max_y, l.position.y + l.size.y)
+	r0 := layer_rect(&arch.layers[0])
+	min_x, min_y := r0.x, r0.y
+	max_x, max_y := r0.x + r0.width, r0.y + r0.height
+	for i in 0 ..< len(arch.layers) {
+		r := layer_rect(&arch.layers[i])
+		min_x = min(min_x, r.x)
+		min_y = min(min_y, r.y)
+		max_x = max(max_x, r.x + r.width)
+		max_y = max(max_y, r.y + r.height)
 	}
 	return rl.Vector2{max_x - min_x, max_y - min_y}
 }
@@ -847,16 +929,51 @@ fit_camera :: proc(arch: ^Architecture, screen_w, screen_h: f32, margin: f32 = 8
 	arch.camera.target = network_center(arch)
 }
 
+// All geometry helpers return RENDER-space coords (i.e. apply render_x_offset / render_w_extra).
+// During non-unrolled rendering both transients are zero and these reduce to the base layer geometry.
+
 layer_rect :: proc(l: ^Layer) -> rl.Rectangle {
-	return rl.Rectangle{l.position.x, l.position.y, l.size.x, l.size.y}
+	return rl.Rectangle{
+		l.position.x + l.render_x_offset,
+		l.position.y,
+		l.size.x + l.render_w_extra,
+		l.size.y,
+	}
 }
 
 layer_left_anchor :: proc(l: ^Layer) -> rl.Vector2 {
-	return rl.Vector2{l.position.x, l.position.y + l.size.y / 2}
+	return rl.Vector2{l.position.x + l.render_x_offset, l.position.y + l.size.y / 2}
 }
 
 layer_right_anchor :: proc(l: ^Layer) -> rl.Vector2 {
-	return rl.Vector2{l.position.x + l.size.x, l.position.y + l.size.y / 2}
+	return rl.Vector2{
+		l.position.x + l.render_x_offset + l.size.x + l.render_w_extra,
+		l.position.y + l.size.y / 2,
+	}
+}
+
+// Recompute every layer's transient render_x_offset / render_w_extra based on arch.unrolled.
+// Call once per frame before handle_input and drawing so hit-testing and rendering agree.
+compute_render_offsets :: proc(arch: ^Architecture) {
+	for i in 0 ..< len(arch.layers) {
+		arch.layers[i].render_x_offset = 0
+		arch.layers[i].render_w_extra = 0
+	}
+	if !arch.unrolled do return
+
+	for i in 0 ..< len(arch.layers) {
+		l := &arch.layers[i]
+		if !is_recurrent(l.type) do continue
+		shift := f32(UNROLL_STEPS - 1) * (l.size.x + UNROLL_GAP)
+		l.render_w_extra = shift
+		boundary := l.position.x + l.size.x / 2
+		for j in 0 ..< len(arch.layers) {
+			if i == j do continue
+			if arch.layers[j].position.x > boundary {
+				arch.layers[j].render_x_offset += shift
+			}
+		}
+	}
 }
 
 layer_by_id :: proc(arch: ^Architecture, id: int) -> ^Layer {
@@ -1009,6 +1126,7 @@ draw_in_flight_connection :: proc(arch: ^Architecture, from_id: int, mouse_world
 }
 
 draw_self_loops :: proc(arch: ^Architecture) {
+	if arch.unrolled do return // time-unrolled view replaces self-loops with explicit step arrows
 	for i in 0 ..< len(arch.layers) {
 		l := &arch.layers[i]
 		if !is_recurrent(l.type) do continue
@@ -1061,76 +1179,109 @@ draw_arrowhead :: proc(a, b: rl.Vector2, col: rl.Color) {
 	rl.DrawTriangle(tip, left, right, col)
 }
 
+// Draw a single layer card at the given rect with given highlight state and optional step suffix.
+// step_label is non-empty in unrolled mode (e.g. "t-1", "t", "t+1") and is rendered above the card.
+draw_layer_card :: proc(l: ^Layer, rect: rl.Rectangle, highlighted: bool, step_label: cstring = "") {
+	// multi-channel stack shadow
+	ch := l.output_shape[0]
+	if ch > 1 && (l.type == .Input || l.type == .Conv2D || l.type == .MaxPool || l.type == .AveragePool) {
+		n := int(math.log10_f32(f32(ch))) + 1
+		if n > 4 do n = 4
+		if n < 1 do n = 1
+		shadow := darken(l.color, 0.22)
+		shadow.a = 220
+		outline := darken(l.color, 0.55)
+		for k := n; k >= 1; k -= 1 {
+			off := f32(k) * 4
+			r := rl.Rectangle{rect.x + off, rect.y - off, rect.width, rect.height}
+			rl.DrawRectangleRounded(r, 0.18, 8, shadow)
+			rl.DrawRectangleRoundedLinesEx(r, 0.18, 8, 1.0, outline)
+		}
+	}
+
+	bg := darken(l.color, 0.30)
+	bg.a = 235
+	rl.DrawRectangleRounded(rect, 0.18, 10, bg)
+
+	thick: f32 = highlighted ? 3.5 : 2.0
+	border_col := highlighted ? rl.Color{255, 255, 255, 255} : l.color
+	rl.DrawRectangleRoundedLinesEx(rect, 0.18, 10, thick, border_col)
+
+	header := rl.Rectangle{rect.x, rect.y, rect.width, 22}
+	rl.DrawRectangleRec(header, l.color)
+
+	name := layer_label(l.type)
+	name_w := rl.MeasureText(name, 14)
+	rl.DrawText(
+		name,
+		i32(rect.x + (rect.width - f32(name_w)) / 2),
+		i32(rect.y + 4),
+		14,
+		rl.Color{15, 18, 25, 255},
+	)
+
+	out_str := shape_label(l.output_shape)
+	out_w := rl.MeasureText(out_str, 16)
+	rl.DrawText(
+		out_str,
+		i32(rect.x + (rect.width - f32(out_w)) / 2),
+		i32(rect.y + rect.height / 2 - 8),
+		16,
+		rl.Color{235, 240, 245, 255},
+	)
+
+	params := params_label(l)
+	if params != "" {
+		pw := rl.MeasureText(params, 11)
+		rl.DrawText(
+			params,
+			i32(rect.x + (rect.width - f32(pw)) / 2),
+			i32(rect.y + rect.height - 16),
+			11,
+			rl.Color{200, 210, 220, 220},
+		)
+	}
+
+	if step_label != "" {
+		sw := rl.MeasureText(step_label, 12)
+		rl.DrawText(
+			step_label,
+			i32(rect.x + (rect.width - f32(sw)) / 2),
+			i32(rect.y - 16),
+			12,
+			rl.Color{220, 200, 250, 240},
+		)
+	}
+}
+
+UNROLL_STEP_LABELS := [?]cstring{"t-1", "t", "t+1", "t+2", "t+3", "t+4", "t+5", "t+6"}
+
 draw_layers :: proc(arch: ^Architecture, hovered: int) {
 	for i in 0 ..< len(arch.layers) {
 		l := &arch.layers[i]
-		rect := layer_rect(l)
-
-		// multi-channel: draw offset shadow "stack" behind the main card
-		ch := l.output_shape[0]
-		if ch > 1 && (l.type == .Input || l.type == .Conv2D || l.type == .MaxPool || l.type == .AveragePool) {
-			n := int(math.log10_f32(f32(ch))) + 1
-			if n > 4 do n = 4
-			if n < 1 do n = 1
-			shadow := darken(l.color, 0.22)
-			shadow.a = 220
-			outline := darken(l.color, 0.55)
-			for k := n; k >= 1; k -= 1 {
-				off := f32(k) * 4
-				r := rl.Rectangle{rect.x + off, rect.y - off, rect.width, rect.height}
-				rl.DrawRectangleRounded(r, 0.18, 8, shadow)
-				rl.DrawRectangleRoundedLinesEx(r, 0.18, 8, 1.0, outline)
+		if arch.unrolled && is_recurrent(l.type) {
+			// draw N copies side by side with time-step arrows between them
+			base_x := l.position.x + l.render_x_offset
+			single_w := l.size.x
+			for step in 0 ..< UNROLL_STEPS {
+				x := base_x + f32(step) * (single_w + UNROLL_GAP)
+				r := rl.Rectangle{x, l.position.y, single_w, l.size.y}
+				label: cstring
+				if step < len(UNROLL_STEP_LABELS) {
+					label = UNROLL_STEP_LABELS[step]
+				}
+				draw_layer_card(l, r, i == hovered, label)
 			}
-		}
-
-		bg := darken(l.color, 0.30)
-		bg.a = 235
-		rl.DrawRectangleRounded(rect, 0.18, 10, bg)
-
-		thick: f32 = i == hovered ? 3.5 : 2.0
-		border_col := l.color
-		if i == hovered {
-			border_col = rl.Color{255, 255, 255, 255}
-		}
-		rl.DrawRectangleRoundedLinesEx(rect, 0.18, 10, thick, border_col)
-
-		// header strip on top
-		header := rl.Rectangle{rect.x, rect.y, rect.width, 22}
-		rl.DrawRectangleRec(header, l.color)
-
-		// name text
-		name := layer_label(l.type)
-		name_w := rl.MeasureText(name, 14)
-		rl.DrawText(
-			name,
-			i32(rect.x + (rect.width - f32(name_w)) / 2),
-			i32(rect.y + 4),
-			14,
-			rl.Color{15, 18, 25, 255},
-		)
-
-		// output shape (centered)
-		out_str := shape_label(l.output_shape)
-		out_w := rl.MeasureText(out_str, 16)
-		rl.DrawText(
-			out_str,
-			i32(rect.x + (rect.width - f32(out_w)) / 2),
-			i32(rect.y + rect.height / 2 - 8),
-			16,
-			rl.Color{235, 240, 245, 255},
-		)
-
-		// params footer
-		params := params_label(l)
-		if params != "" {
-			pw := rl.MeasureText(params, 11)
-			rl.DrawText(
-				params,
-				i32(rect.x + (rect.width - f32(pw)) / 2),
-				i32(rect.y + rect.height - 16),
-				11,
-				rl.Color{200, 210, 220, 220},
-			)
+			// time-step arrows between consecutive copies
+			arrow_col := rl.Color{200, 160, 240, 220}
+			for step in 0 ..< UNROLL_STEPS - 1 {
+				a := rl.Vector2{base_x + f32(step) * (single_w + UNROLL_GAP) + single_w, l.position.y + l.size.y / 2}
+				b := rl.Vector2{base_x + f32(step + 1) * (single_w + UNROLL_GAP), l.position.y + l.size.y / 2}
+				rl.DrawLineEx(a, b, 2.0, arrow_col)
+				draw_arrowhead(a, b, arrow_col)
+			}
+		} else {
+			draw_layer_card(l, layer_rect(l), i == hovered)
 		}
 	}
 }
