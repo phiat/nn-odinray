@@ -1,0 +1,21 @@
+# build artifacts
+visualizer
+nn-odinray
+pp-1
+*.o
+*.obj
+*.exe
+
+# editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# runtime save files (user-local state)
+architecture.json
+arch_*.json
+
+# raw test screenshots (curated ones live in screenshots/)
+shot_*.png
+mvp_demo*.png
+visualizer_*.png
