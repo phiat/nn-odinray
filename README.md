@@ -1,5 +1,6 @@
 # nn-odinray
 
+[![Release Build](https://github.com/phiat/nn-odinray/actions/workflows/release.yml/badge.svg)](https://github.com/phiat/nn-odinray/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Odin](https://img.shields.io/badge/Odin-dev--2026--05-black.svg)](https://odin-lang.org/)
 [![raylib](https://img.shields.io/badge/raylib-5.5-red.svg)](https://www.raylib.com/)

@@ -1,0 +1,137 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  ODIN_VERSION: dev-2026-05
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            odin_asset: odin-linux-amd64
+            archive_ext: tar.gz
+            binary: nn-odinray
+          - os: macos-13
+            platform: macos-x86_64
+            odin_asset: odin-macos-amd64
+            archive_ext: tar.gz
+            binary: nn-odinray
+          - os: macos-14
+            platform: macos-arm64
+            odin_asset: odin-macos-arm64
+            archive_ext: tar.gz
+            binary: nn-odinray
+          - os: windows-latest
+            platform: windows-x86_64
+            odin_asset: odin-windows-amd64
+            archive_ext: zip
+            binary: nn-odinray.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev libgl1-mesa-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxinerama-dev libwayland-dev libxkbcommon-dev
+
+      - name: Download Odin (${{ env.ODIN_VERSION }})
+        shell: bash
+        run: |
+          URL="https://github.com/odin-lang/Odin/releases/download/${ODIN_VERSION}/${{ matrix.odin_asset }}-${ODIN_VERSION}.${{ matrix.archive_ext }}"
+          echo "Downloading $URL"
+          curl -fsSL -o "odin-pkg.${{ matrix.archive_ext }}" "$URL"
+          mkdir odin-dist
+          if [ "${{ matrix.archive_ext }}" = "tar.gz" ]; then
+            tar -xzf "odin-pkg.tar.gz" -C odin-dist
+          else
+            7z x "odin-pkg.zip" -oodin-dist > /dev/null
+          fi
+          ODIN_BIN=$(find odin-dist \( -name 'odin' -o -name 'odin.exe' \) -type f | head -1)
+          if [ -z "$ODIN_BIN" ]; then
+            echo "could not locate odin binary in the extracted package"
+            find odin-dist | head -40
+            exit 1
+          fi
+          chmod +x "$ODIN_BIN" || true
+          ODIN_DIR=$(cd "$(dirname "$ODIN_BIN")" && pwd)
+          echo "Found Odin: $ODIN_BIN"
+          echo "$ODIN_DIR" >> "$GITHUB_PATH"
+
+      - name: Verify Odin
+        shell: bash
+        run: odin version
+
+      - name: Build
+        shell: bash
+        run: odin build . -out:${{ matrix.binary }} -o:speed
+
+      - name: Sanity check (headless shape-test)
+        shell: bash
+        run: ./${{ matrix.binary }} --shape-test
+
+      - name: Stage release files
+        shell: bash
+        run: |
+          STAGE="nn-odinray-${{ matrix.platform }}"
+          mkdir -p "dist/$STAGE"
+          cp "${{ matrix.binary }}" "dist/$STAGE/"
+          cp README.md LICENSE "dist/$STAGE/"
+          cd dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a "$STAGE.zip" "$STAGE" > /dev/null
+            ls -la "$STAGE.zip"
+          else
+            tar czf "$STAGE.tar.gz" "$STAGE"
+            ls -la "$STAGE.tar.gz"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nn-odinray-${{ matrix.platform }}
+          path: dist/nn-odinray-${{ matrix.platform }}.*
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec mv -t release {} +
+          ls -la release
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
